@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub PWA Uploader</title>
+    <title>GitHub Static Site Uploader</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -91,7 +91,8 @@
 <body>
 
 <div class="container">
-    <h1>GitHub PWA Uploader</h1>
+    <h1>GitHub Static Site Uploader</h1>
+    <p class="note">HTMLファイル1つをアップロードして、GitHub Pagesで即座に公開するツールです。</p>
     
     <div class="group">
         <label>1. GitHub Token</label>
@@ -102,8 +103,8 @@
     </div>
 
     <div class="group">
-        <label>2. リポジトリ名</label>
-        <input type="text" id="repoName" value="text-to-cad-mobile" placeholder="例: my-app">
+        <label>2. リポジトリ名 (英数字)</label>
+        <input type="text" id="repoName" placeholder="例: my-awesome-app">
     </div>
 
     <div class="group">
@@ -117,7 +118,7 @@
             <b>PWA対応 (アプリ化) を有効にする</b>
         </label>
         <div class="note">
-            チェックすると、<code>manifest.json</code> やアイコンを自動生成し、HTMLに読み込みタグを挿入してアップロードします。これによりスマホで「ホーム画面に追加」した際に全画面アプリとして動作します。
+            有効にすると、スマホのホーム画面に追加した際に全画面アプリとして動作するように必要なファイル (`manifest.json` 等) を自動生成します。
         </div>
     </div>
 
@@ -128,7 +129,6 @@
 
 <script>
     // --- 埋め込み用デフォルトアイコン (1x1 透明PNG) ---
-    // 確実に有効なBase64文字列
     const DEFAULT_ICON_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
     const logDiv = document.getElementById('log');
@@ -248,14 +248,14 @@
                 await uploadFile(username, repoName, 'icon-192.png', DEFAULT_ICON_BASE64, token);
                 await uploadFile(username, repoName, 'icon-512.png', DEFAULT_ICON_BASE64, token);
 
-                // B. manifest.json
+                // B. manifest.json (アプリ名はリポジトリ名を使用)
                 const manifest = {
-                    "name": "TextToCAD",
-                    "short_name": "TextToCAD",
+                    "name": repoName,
+                    "short_name": repoName,
                     "start_url": "./index.html",
                     "display": "standalone",
-                    "background_color": "#333333",
-                    "theme_color": "#333333",
+                    "background_color": "#ffffff",
+                    "theme_color": "#ffffff",
                     "icons": [
                         { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
                         { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
@@ -296,7 +296,7 @@ self.addEventListener('fetch', (e) => {
             link.style.color = "#85e89d";
             logDiv.appendChild(link);
 
-            // コピーボタンを追加
+            // コピーボタン
             const copyBtn = document.createElement('button');
             copyBtn.textContent = "URLをコピー";
             copyBtn.style.marginLeft = "10px";
