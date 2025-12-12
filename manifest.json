@@ -1,10 +1,10 @@
 {
-  "name": "TextToCAD",
-  "short_name": "TextToCAD",
+  "name": "up",
+  "short_name": "up",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#333333",
-  "theme_color": "#333333",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "icon-192.png",
