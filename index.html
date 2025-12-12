@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub PWA Uploader</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { margin-top: 0; font-size: 1.5rem; color: #24292e; }
+        .group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        input[type="checkbox"] { transform: scale(1.2); margin-right: 5px; }
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            background: #f9f9f9;
+            border: 1px dashed #ccc;
+            border-radius: 4px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #2ea44f;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:disabled { background-color: #94d3a2; cursor: not-allowed; }
+        button:hover:not(:disabled) { background-color: #2c974b; }
+        
+        .note { font-size: 0.85rem; color: #666; margin-top: 5px; }
+        .note a { color: #0366d6; }
+        
+        #log {
+            margin-top: 20px;
+            padding: 10px;
+            background: #24292e;
+            color: #fff;
+            font-family: monospace;
+            font-size: 0.85rem;
+            border-radius: 4px;
+            min-height: 100px;
+            white-space: pre-wrap;
+        }
+        .success { color: #85e89d; }
+        .error { color: #f97583; }
+        .info { color: #79b8ff; }
+        .pwa-option {
+            background: #e6ffed;
+            padding: 10px;
+            border: 1px solid #bef5cb;
+            border-radius: 4px;
+        }
+    </style>
+
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js');
+        }
+    </script>
+</head>
+<body>
+
+<div class="container">
+    <h1>GitHub PWA Uploader</h1>
+    
+    <div class="group">
+        <label>1. GitHub Token</label>
+        <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx">
+        <div class="note">
+            <a href="https://github.com/settings/tokens/new?scopes=repo&description=WebUploader" target="_blank">トークン作成 (scope: repo)</a>
+        </div>
+    </div>
+
+    <div class="group">
+        <label>2. リポジトリ名</label>
+        <input type="text" id="repoName" value="text-to-cad-mobile" placeholder="例: my-app">
+    </div>
+
+    <div class="group">
+        <label>3. HTMLファイル (index.html)</label>
+        <input type="file" id="fileInput" accept=".html">
+    </div>
+
+    <div class="group pwa-option">
+        <label style="cursor:pointer;">
+            <input type="checkbox" id="pwaCheck" checked>
+            <b>PWA対応 (アプリ化) を有効にする</b>
+        </label>
+        <div class="note">
+            チェックすると、<code>manifest.json</code> やアイコンを自動生成し、HTMLに読み込みタグを挿入してアップロードします。これによりスマホで「ホーム画面に追加」した際に全画面アプリとして動作します。
+        </div>
+    </div>
+
+    <button id="btnUpload">アップロード & 公開</button>
+
+    <div id="log">ログ待機中...</div>
+</div>
+
+<script>
+    // --- 埋め込み用デフォルトアイコン (1x1 透明PNG) ---
+    // 確実に有効なBase64文字列
+    const DEFAULT_ICON_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+
+    const logDiv = document.getElementById('log');
+    const btnUpload = document.getElementById('btnUpload');
+
+    function log(msg, type = 'normal') {
+        const line = document.createElement('div');
+        line.textContent = `> ${msg}`;
+        if (type === 'success') line.className = 'success';
+        if (type === 'error') line.className = 'error';
+        if (type === 'info') line.className = 'info';
+        logDiv.appendChild(line);
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    async function githubAPI(endpoint, token, options = {}) {
+        const url = `https://api.github.com${endpoint}`;
+        const headers = {
+            'Authorization': `token ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+            ...options.headers
+        };
+        const response = await fetch(url, { ...options, headers });
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || response.statusText);
+        }
+        return data;
+    }
+
+    async function uploadFile(username, repo, path, contentBase64, token) {
+        let sha = null;
+        try {
+            const current = await githubAPI(`/repos/${username}/${repo}/contents/${path}`, token);
+            sha = current.sha;
+        } catch (e) {}
+
+        try {
+            await githubAPI(`/repos/${username}/${repo}/contents/${path}`, token, {
+                method: 'PUT',
+                body: JSON.stringify({
+                    message: `Add ${path}`,
+                    content: contentBase64,
+                    sha: sha
+                })
+            });
+            log(`${path} アップロード完了`, 'info');
+        } catch (e) {
+            throw new Error(`${path} のアップロードに失敗: ${e.message}`);
+        }
+    }
+
+    // 文字列(UTF-8)をBase64に変換する関数 (MDN推奨)
+    function utf8_to_b64(str) {
+        return window.btoa(unescape(encodeURIComponent(str)));
+    }
+
+    btnUpload.addEventListener('click', async () => {
+        const token = document.getElementById('token').value.trim();
+        const repoName = document.getElementById('repoName').value.trim();
+        const fileInput = document.getElementById('fileInput');
+        const isPwa = document.getElementById('pwaCheck').checked;
+        
+        if (!token) return log('エラー: トークンを入力してください', 'error');
+        if (!repoName) return log('エラー: リポジトリ名を入力してください', 'error');
+        if (fileInput.files.length === 0) return log('エラー: ファイルを選択してください', 'error');
+
+        const file = fileInput.files[0];
+        btnUpload.disabled = true;
+        log('処理を開始します...', 'info');
+
+        try {
+            // 1. ユーザー確認
+            const user = await githubAPI('/user', token);
+            const username = user.login;
+            log(`ログイン: ${username}`, 'success');
+
+            // 2. リポジトリ作成
+            try {
+                await githubAPI('/user/repos', token, {
+                    method: 'POST',
+                    body: JSON.stringify({ name: repoName, private: false, auto_init: true })
+                });
+                log('リポジトリ作成完了', 'success');
+            } catch (e) {
+                log('リポジトリは既に存在します (上書きモード)', 'info');
+            }
+
+            // 3. HTMLファイルの読み込みと加工
+            let htmlContent = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsText(file);
+            });
+
+            if (isPwa) {
+                log('PWA対応処理を実行中...');
+                
+                // PWA用タグの挿入
+                const pwaTags = `
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js');
+        }
+    <\/script>
+</head>`;
+                htmlContent = htmlContent.replace('</head>', pwaTags);
+
+                // --- 関連ファイルのアップロード ---
+                
+                // A. icon-192.png / icon-512.png
+                await uploadFile(username, repoName, 'icon-192.png', DEFAULT_ICON_BASE64, token);
+                await uploadFile(username, repoName, 'icon-512.png', DEFAULT_ICON_BASE64, token);
+
+                // B. manifest.json
+                const manifest = {
+                    "name": "TextToCAD",
+                    "short_name": "TextToCAD",
+                    "start_url": "./index.html",
+                    "display": "standalone",
+                    "background_color": "#333333",
+                    "theme_color": "#333333",
+                    "icons": [
+                        { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+                        { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+                    ]
+                };
+                await uploadFile(username, repoName, 'manifest.json', utf8_to_b64(JSON.stringify(manifest, null, 2)), token);
+
+                // C. service-worker.js
+                const swCode = `
+self.addEventListener('install', (e) => {
+  console.log('Service Worker Installed');
+});
+self.addEventListener('fetch', (e) => {
+});`;
+                await uploadFile(username, repoName, 'service-worker.js', utf8_to_b64(swCode), token);
+            }
+
+            // 4. HTMLのアップロード (加工済みHTML文字列をUTF-8 Base64に変換)
+            await uploadFile(username, repoName, 'index.html', utf8_to_b64(htmlContent), token);
+            
+            // 5. GitHub Pages有効化
+            try {
+                await githubAPI(`/repos/${username}/${repoName}/pages`, token, {
+                    method: 'POST', body: JSON.stringify({ source: { branch: 'main', path: '/' } })
+                });
+                log('GitHub Pages 設定完了', 'success');
+            } catch(e) {}
+
+            const pageUrl = `https://${username}.github.io/${repoName}/`;
+            log('--------------------------------------------');
+            log('完了しました！', 'success');
+            log(`URL: ${pageUrl}`, 'success');
+            
+            const link = document.createElement('a');
+            link.href = pageUrl;
+            link.target = "_blank";
+            link.textContent = "公開ページを開く";
+            link.style.color = "#85e89d";
+            logDiv.appendChild(link);
+
+            // コピーボタンを追加
+            const copyBtn = document.createElement('button');
+            copyBtn.textContent = "URLをコピー";
+            copyBtn.style.marginLeft = "10px";
+            copyBtn.style.padding = "5px 10px";
+            copyBtn.style.fontSize = "0.8rem";
+            copyBtn.style.width = "auto";
+            copyBtn.style.background = "#58a6ff";
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(pageUrl).then(() => {
+                    copyBtn.textContent = "コピーしました！";
+                    setTimeout(() => copyBtn.textContent = "URLをコピー", 2000);
+                });
+            };
+            logDiv.appendChild(copyBtn);
+
+            // トークン削除の案内
+            const deleteTokenMsg = document.createElement('div');
+            deleteTokenMsg.style.marginTop = "15px";
+            deleteTokenMsg.style.fontSize = "0.9rem";
+            deleteTokenMsg.innerHTML = `
+                ⚠️ セキュリティのため、作業が終わったらトークンを削除することをお勧めします。<br>
+                <a href="https://github.com/settings/tokens" target="_blank" style="color:#f97583">トークン管理ページへ移動</a>
+            `;
+            logDiv.appendChild(deleteTokenMsg);
+
+        } catch (e) {
+            log(`エラー: ${e.message}`, 'error');
+            console.error(e);
+        } finally {
+            btnUpload.disabled = false;
+        }
+    });
+</script>
+
+</body>
+</html>
