@@ -1,1 +1,3 @@
 GitHubPagesアプリアップローダー
+
+GitHubページズにアップロードしてwebに公開
